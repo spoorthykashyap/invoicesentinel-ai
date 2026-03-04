@@ -1,0 +1,930 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>InvoiceSentinel AI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  </head>
+  <body class="bg-slate-950 text-slate-50">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useRef } = React;
+
+      const navItems = [
+        { id: 'dashboard', label: 'Dashboard' },
+        { id: 'upload', label: 'Upload Invoice' },
+        { id: 'reports', label: 'Reports' }
+      ];
+
+      function Layout({ activePage, setActivePage, children }) {
+        return (
+          <div className="min-h-screen flex bg-slate-950">
+            <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col">
+              <div className="px-6 py-5 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-xl bg-sky-500/20 flex items-center justify-center">
+                    <span className="text-sky-400 font-semibold text-lg">IS</span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-50">InvoiceSentinel AI</div>
+                    <div className="text-xs text-slate-400">
+                      Detecting Revenue Leakages Before They Cost You
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <nav className="flex-1 px-3 py-4 space-y-1">
+                {navItems.map((item) => (
+                  <button
+                    key={item.id}
+                    onClick={() => setActivePage(item.id)}
+                    className={`w-full flex items-center px-3 py-2 rounded-lg text-sm transition ${
+                      activePage === item.id
+                        ? 'bg-sky-500/20 text-sky-300'
+                        : 'text-slate-300 hover:bg-slate-800 hover:text-slate-50'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </nav>
+              <div className="px-6 py-4 border-t border-slate-800 text-xs text-slate-500">
+                Prototype only. Data is simulated.
+              </div>
+            </aside>
+            <div className="flex-1 flex flex-col">
+              <header className="md:hidden px-4 py-3 border-b border-slate-800 bg-slate-900/60 backdrop-blur">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-slate-50">InvoiceSentinel AI</div>
+                    <div className="text-[11px] text-slate-400">
+                      Detecting Revenue Leakages Before They Cost You
+                    </div>
+                  </div>
+                  <select
+                    className="bg-slate-800 text-slate-100 text-xs rounded px-2 py-1 border border-slate-700"
+                    value={activePage}
+                    onChange={(e) => setActivePage(e.target.value)}
+                  >
+                    {navItems.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </header>
+              <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto bg-[radial-gradient(circle_at_top,_#0f172a,_#020617)]">
+                {children}
+              </main>
+            </div>
+          </div>
+        );
+      }
+
+      function SummaryCard({ label, value, sub, tone = 'default' }) {
+        const toneClasses =
+          tone === 'danger'
+            ? 'border-rose-500/30 bg-rose-500/5'
+            : tone === 'success'
+            ? 'border-emerald-500/30 bg-emerald-500/5'
+            : 'border-slate-700 bg-slate-900/40';
+
+        return (
+          <div
+            className={`rounded-2xl border ${toneClasses} px-4 py-4 lg:px-5 lg:py-5 shadow-sm shadow-slate-900/50`}
+          >
+            <div className="text-xs uppercase tracking-wide text-slate-400 mb-1.5">{label}</div>
+            <div className="text-xl lg:text-2xl font-semibold text-slate-50">{value}</div>
+            {sub && <div className="text-[11px] text-slate-400 mt-1">{sub}</div>}
+          </div>
+        );
+      }
+
+      function useChart(canvasRef, type, configBuilder, deps) {
+        useEffect(() => {
+          if (!canvasRef.current) return;
+          const ctx = canvasRef.current.getContext('2d');
+          const chart = new Chart(ctx, configBuilder());
+          return () => chart.destroy();
+        }, deps);
+      }
+
+      function Dashboard({ dashboard }) {
+        const barRef = useRef(null);
+        const pieRef = useRef(null);
+        const vendorRef = useRef(null);
+
+        const safeBilledVsCorrect =
+          dashboard && dashboard.charts && dashboard.charts.billedVsCorrect
+            ? dashboard.charts.billedVsCorrect
+            : { labels: [], data: [] };
+        const safeDiscrepancy =
+          dashboard && dashboard.charts && dashboard.charts.discrepancyBreakdown
+            ? dashboard.charts.discrepancyBreakdown
+            : { labels: [], data: [] };
+        const safeVendorRisk =
+          dashboard && dashboard.charts && dashboard.charts.vendorRisk
+            ? dashboard.charts.vendorRisk
+            : { labels: [], data: [] };
+
+        useChart(
+          barRef,
+          'bar',
+          () => ({
+            type: 'bar',
+            data: {
+              labels: safeBilledVsCorrect.labels || [],
+              datasets: [
+                {
+                  label: 'Amount (INR)',
+                  data: safeBilledVsCorrect.data || [],
+                  backgroundColor: ['#38bdf8', '#22c55e']
+                }
+              ]
+            },
+            options: {
+              plugins: {
+                legend: { display: false }
+              },
+              scales: {
+                x: { ticks: { color: '#94a3b8' } },
+                y: { ticks: { color: '#94a3b8' } }
+              }
+            }
+          }),
+          [dashboard]
+        );
+
+        useChart(
+          pieRef,
+          'pie',
+          () => ({
+            type: 'pie',
+            data: {
+              labels: safeDiscrepancy.labels || [],
+              datasets: [
+                {
+                  data: safeDiscrepancy.data || [],
+                  backgroundColor: ['#f97316', '#e11d48', '#a855f7', '#facc15', '#0ea5e9', '#22c55e']
+                }
+              ]
+            },
+            options: {
+              plugins: {
+                legend: {
+                  labels: { color: '#cbd5f5', font: { size: 11 } }
+                }
+              }
+            }
+          }),
+          [dashboard]
+        );
+
+        useChart(
+          vendorRef,
+          'bar',
+          () => ({
+            type: 'bar',
+            data: {
+              labels: safeVendorRisk.labels || [],
+              datasets: [
+                {
+                  label: 'Leakage %',
+                  data: safeVendorRisk.data || [],
+                  backgroundColor: '#f97316'
+                }
+              ]
+            },
+            options: {
+              plugins: { legend: { display: false } },
+              scales: {
+                x: { ticks: { color: '#94a3b8' } },
+                y: { ticks: { color: '#94a3b8' } }
+              }
+            }
+          }),
+          [dashboard]
+        );
+
+        return (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-2 mb-2">
+              <h2 className="text-xl lg:text-2xl font-semibold text-slate-50">
+                Finance Control Tower
+              </h2>
+              <p className="text-sm text-slate-400 max-w-2xl">
+                A single pane of glass for invoice health, vendor risk and revenue leakage across
+                your payable universe.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <SummaryCard
+                label="Total Invoices Processed"
+                value={
+                  dashboard && dashboard.totals && dashboard.totals.totalInvoicesProcessed
+                    ? dashboard.totals.totalInvoicesProcessed
+                    : 0
+                }
+                sub="Simulated from uploaded and sample invoices"
+              />
+              <SummaryCard
+                label="Total Invoice Amount"
+                value={
+                  '₹ ' +
+                  (
+                    dashboard && dashboard.totals && dashboard.totals.totalInvoiceAmount
+                      ? dashboard.totals.totalInvoiceAmount
+                      : 0
+                  ).toLocaleString('en-IN', {
+                    maximumFractionDigits: 0
+                  })
+                }
+                sub="Billed by your vendor network"
+              />
+              <SummaryCard
+                label="Correct Amount"
+                value={
+                  '₹ ' +
+                  (
+                    dashboard && dashboard.totals && dashboard.totals.totalCorrectAmount
+                      ? dashboard.totals.totalCorrectAmount
+                      : 0
+                  ).toLocaleString('en-IN', {
+                    maximumFractionDigits: 0
+                  })
+                }
+                tone="success"
+                sub="Aligned with approved rate cards"
+              />
+              <SummaryCard
+                label="Overcharge Detected"
+                value={
+                  '₹ ' +
+                  (
+                    dashboard && dashboard.totals && dashboard.totals.totalOvercharge
+                      ? dashboard.totals.totalOvercharge
+                      : 0
+                  ).toLocaleString('en-IN', {
+                    maximumFractionDigits: 0
+                  })
+                }
+                tone="danger"
+                sub="Potential leakage proactively intercepted"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <div className="xl:col-span-2 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 lg:p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-slate-100">
+                    Billed vs Correct Amount
+                  </h3>
+                  <span className="text-[11px] text-slate-400">
+                    Rate cards & policy guardrails applied
+                  </span>
+                </div>
+                <canvas ref={barRef} className="w-full h-64" />
+              </div>
+
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 lg:p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-medium text-slate-100">
+                      Discrepancy Type Breakdown
+                    </h3>
+                    <span className="text-[11px] text-slate-400">Top leakage drivers</span>
+                  </div>
+                  <canvas ref={pieRef} className="w-full h-52" />
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/40 p-4 lg:p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-medium text-slate-100">Vendor Risk Snapshot</h3>
+                    <span className="text-[11px] text-slate-400">Leakage by supplier</span>
+                  </div>
+                  <canvas ref={vendorRef} className="w-full h-40" />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function StatusPill({ status }) {
+        const map = {
+          OVERCHARGE: 'bg-rose-500/10 text-rose-300 border border-rose-500/40',
+          GST_MISMATCH: 'bg-amber-500/10 text-amber-300 border border-amber-500/40',
+          DUPLICATE: 'bg-orange-500/10 text-orange-300 border border-orange-500/40',
+          UNAPPROVED_CHARGE: 'bg-fuchsia-500/10 text-fuchsia-300 border border-fuchsia-500/40',
+          CALCULATION_ERROR: 'bg-sky-500/10 text-sky-300 border border-sky-500/40',
+          OK: 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/40'
+        };
+        return (
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${map[status] ||
+              map.OK}`}
+          >
+            {status.replace('_', ' ')}
+          </span>
+        );
+      }
+
+      function riskColor(level) {
+        switch (level) {
+          case 'Critical':
+            return 'bg-rose-500/10 text-rose-300 border border-rose-500/40';
+          case 'Medium':
+            return 'bg-amber-500/10 text-amber-300 border border-amber-500/40';
+          default:
+            return 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/40';
+        }
+      }
+
+      function UploadInvoice({ setDashboard, lastResult, setLastResult }) {
+        const [samples, setSamples] = useState([]);
+        const [selectedSample, setSelectedSample] = useState('');
+        const [dragActive, setDragActive] = useState(false);
+        const [loading, setLoading] = useState(false);
+        const [error, setError] = useState('');
+        const [fileName, setFileName] = useState('');
+
+        useEffect(() => {
+          fetch('/api/invoices/samples')
+            .then((r) => r.json())
+            .then(setSamples)
+            .catch((e) => console.error(e));
+        }, []);
+
+        const refreshDashboard = () => {
+          fetch('/api/dashboard')
+            .then((r) => r.json())
+            .then(setDashboard)
+            .catch((e) => console.error(e));
+        };
+
+        const handleSample = async () => {
+          if (!selectedSample && samples[0]) {
+            setSelectedSample(samples[0].id);
+          }
+          const id = selectedSample || (samples[0] && samples[0].id);
+          if (!id) return;
+          setLoading(true);
+          setError('');
+          try {
+            const res = await fetch(`/api/invoices/use-sample/${id}`, {
+              method: 'POST'
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Failed to process sample');
+            setLastResult(data);
+            setFileName(`Sample: ${data.invoice.vendorName} (${data.invoice.invoiceNumber})`);
+            refreshDashboard();
+          } catch (e) {
+            setError(e.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleUpload = async (file) => {
+          if (!file) return;
+          setLoading(true);
+          setError('');
+          setFileName(file.name);
+          try {
+            const form = new FormData();
+            form.append('file', file);
+            if (selectedSample) form.append('simulationId', selectedSample);
+            const res = await fetch('/api/upload', { method: 'POST', body: form });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Upload failed');
+            setLastResult(data);
+            refreshDashboard();
+          } catch (e) {
+            setError(e.message);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const onDrop = (e) => {
+          e.preventDefault();
+          setDragActive(false);
+          const file = e.dataTransfer.files[0];
+          handleUpload(file);
+        };
+
+        const generatePdf = () => {
+          if (!lastResult) return;
+          const { jsPDF } = window.jspdf;
+          const doc = new jsPDF();
+          const inv = lastResult.invoice;
+
+          let y = 14;
+          doc.setFontSize(14);
+          doc.text('InvoiceSentinel AI - Audit Report', 14, y);
+          y += 8;
+          doc.setFontSize(10);
+          doc.text(`Vendor: ${inv.vendorName}`, 14, y);
+          y += 5;
+          doc.text(`Invoice No: ${inv.invoiceNumber}`, 14, y);
+          y += 5;
+          doc.text(`Invoice Date: ${inv.invoiceDate}`, 14, y);
+          y += 8;
+
+          doc.text(
+            `Total Amount: ₹ ${lastResult.totalInvoiceAmount.toLocaleString('en-IN')}`,
+            14,
+            y
+          );
+          y += 5;
+          doc.text(
+            `Correct Amount: ₹ ${lastResult.correctAmount.toLocaleString('en-IN')}`,
+            14,
+            y
+          );
+          y += 5;
+          doc.text(
+            `Overcharge: ₹ ${lastResult.totalOvercharge.toLocaleString('en-IN')} (${lastResult.leakagePercent}% leakage)`,
+            14,
+            y
+          );
+          y += 8;
+
+          doc.text('Detected Flags:', 14, y);
+          y += 6;
+          lastResult.discrepancyTypes.forEach((t) => {
+            doc.text(`- ${t.replace('_', ' ')}`, 18, y);
+            y += 5;
+          });
+
+          y += 4;
+          doc.text('Line Items with Discrepancies:', 14, y);
+          y += 6;
+          lastResult.lineResults.forEach((lr) => {
+            if (lr.status !== 'OK') {
+              if (y > 270) {
+                doc.addPage();
+                y = 14;
+              }
+              doc.text(`• ${lr.description} [${lr.status}]`, 18, y);
+              y += 4;
+              var approvedText = lr.approvedRate != null ? lr.approvedRate : '-';
+              doc.text(
+                'Approved: ' +
+                  approvedText +
+                  ' | Charged: ' +
+                  lr.chargedRate +
+                  ' | Diff: ₹ ' +
+                  lr.difference.toLocaleString('en-IN'),
+                22,
+                y
+              );
+              y += 5;
+            }
+          });
+
+          y += 4;
+          if (y > 270) {
+            doc.addPage();
+            y = 14;
+          }
+          doc.text('Suggested Action:', 14, y);
+          y += 6;
+          doc.text(
+            'Share this audit with the vendor, request credit note for overcharges, and update rate cards if policy has changed.',
+            18,
+            y,
+            { maxWidth: 180 }
+          );
+
+          doc.save(`InvoiceSentinel_Audit_${inv.invoiceNumber}.pdf`);
+        };
+
+        return (
+          <div className="space-y-6">
+            <div className="flex flex-col gap-2">
+              <h2 className="text-xl lg:text-2xl font-semibold text-slate-50">
+                Invoice Intelligence Workbench
+              </h2>
+              <p className="text-sm text-slate-400 max-w-2xl">
+                Drop an invoice or use a curated sample to see how InvoiceSentinel AI extracts,
+                validates and flags leakages in real time.
+              </p>
+            </div>
+
+            <div className="grid lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-1 space-y-4">
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    setDragActive(false);
+                  }}
+                  onDrop={onDrop}
+                  className={`border-2 border-dashed rounded-2xl p-6 bg-slate-900/50 transition ${
+                    dragActive
+                      ? 'border-sky-400 bg-sky-500/10'
+                      : 'border-slate-700 hover:border-sky-500/60'
+                  }`}
+                >
+                  <div className="flex flex-col items-center text-center gap-3">
+                    <div className="h-12 w-12 rounded-2xl bg-slate-800 flex items-center justify-center">
+                      <span className="text-sky-300 text-xl">⭳</span>
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-slate-100">
+                        Drag & drop invoice PDF or image
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        Files are not persisted or sent to any external service. All processing is
+                        simulated locally.
+                      </div>
+                    </div>
+                    <input
+                      type="file"
+                      accept=".pdf,image/*"
+                      className="hidden"
+                      id="fileInput"
+                      onChange={(e) => handleUpload(e.target.files[0])}
+                    />
+                    <label
+                      htmlFor="fileInput"
+                      className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-medium bg-sky-500 text-slate-950 hover:bg-sky-400 cursor-pointer"
+                    >
+                      Browse Files
+                    </label>
+                    {fileName && (
+                      <div className="text-[11px] text-slate-400 truncate max-w-full">
+                        Selected: {fileName}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-medium text-slate-100">Use Sample Invoice</div>
+                      <div className="text-[11px] text-slate-400">
+                        Quickly demo detection across common spend categories.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <select
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-100"
+                      value={selectedSample}
+                      onChange={(e) => setSelectedSample(e.target.value)}
+                    >
+                      <option value="">Select sample scenario…</option>
+                      {samples.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.vendorName} — {s.invoiceNumber}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleSample}
+                      disabled={loading || samples.length === 0}
+                      className="w-full inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-100 text-slate-900 hover:bg-white disabled:opacity-60"
+                    >
+                      {loading ? 'Running Validation…' : 'Use Sample Invoice'}
+                    </button>
+                    <div className="text-[11px] text-slate-400">
+                      • Logistics vendor with route overcharges
+                      <br />
+                      • Raw material supplier with GST mismatch
+                      <br />• Marketing agency with unapproved surcharge
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3.5 text-[11px] text-slate-400 space-y-1.5">
+                  <div className="font-medium text-slate-200 text-xs">What&apos;s simulated?</div>
+                  <div>
+                    • OCR & AI extraction are mocked using structured JSON behind the scenes.
+                  </div>
+                  <div>• Rate cards, GST, duplicates and calculations are enforced server-side.</div>
+                  <div>• No paid APIs, no external calls – safe for demos and offline review.</div>
+                </div>
+
+                {error && (
+                  <div className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+                    {error}
+                  </div>
+                )}
+              </div>
+
+              <div className="lg:col-span-2 space-y-4">
+                {lastResult ? (
+                  <div>
+                    <div className="grid md:grid-cols-3 gap-3">
+                      <SummaryCard
+                        label="Extraction Accuracy"
+                        value={lastResult.extractionAccuracy + '%'}
+                        sub="Simulated OCR + entity recognition"
+                      />
+                      <SummaryCard
+                        label="Risk Level"
+                        value={
+                          <span
+                            className={
+                              'inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ' +
+                              riskColor(lastResult.riskLevel)
+                            }
+                          >
+                            {lastResult.riskLevel} Risk
+                          </span>
+                        }
+                        sub="Based on leakage %, GST & duplicates"
+                      />
+                      <SummaryCard
+                        label="Leakage %"
+                        value={lastResult.leakagePercent + '%'}
+                        sub="Overcharge as % of invoice"
+                        tone="danger"
+                      />
+                    </div>
+
+                    <div className="grid md:grid-cols-5 gap-4 mt-4">
+                      <div className="md:col-span-2 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-medium text-slate-100">
+                            Extracted Invoice Header
+                          </h3>
+                          <span className="text-[11px] text-slate-400">
+                            OCR + AI structured entities
+                          </span>
+                        </div>
+                        <dl className="space-y-1.5 text-xs">
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-slate-400">Vendor</dt>
+                            <dd className="text-slate-100">{lastResult.invoice.vendorName}</dd>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-slate-400">Invoice No</dt>
+                            <dd className="text-slate-100">{lastResult.invoice.invoiceNumber}</dd>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-slate-400">Invoice Date</dt>
+                            <dd className="text-slate-100">{lastResult.invoice.invoiceDate}</dd>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-slate-400">GST Rate</dt>
+                            <dd className="text-slate-100">{lastResult.invoice.gstRate}%</dd>
+                          </div>
+                          <div className="flex justify-between gap-4">
+                            <dt className="text-slate-400">HSN / SAC</dt>
+                            <dd className="text-slate-100">{lastResult.invoice.hsnCode}</dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      <div className="md:col-span-3 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-sm font-medium text-slate-100">
+                            Discrepancy Results Panel
+                          </h3>
+                          <button
+                            onClick={generatePdf}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-sky-500 text-slate-950 hover:bg-sky-400"
+                          >
+                            <span>Generate Audit Report (PDF)</span>
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto rounded-xl border border-slate-800">
+                          <table className="min-w-full text-xs">
+                            <thead className="bg-slate-900/80 text-slate-400">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium">Item</th>
+                                <th className="px-3 py-2 text-right font-medium">Qty</th>
+                                <th className="px-3 py-2 text-right font-medium">Approved Rate</th>
+                                <th className="px-3 py-2 text-right font-medium">Charged Rate</th>
+                                <th className="px-3 py-2 text-right font-medium">Difference</th>
+                                <th className="px-3 py-2 text-center font-medium">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {lastResult.lineResults.map(function (lr, idx) {
+                                return (
+                                  <tr
+                                    key={idx}
+                                    className="border-t border-slate-800/80 hover:bg-slate-900/60"
+                                  >
+                                    <td className="px-3 py-2 text-slate-100">{lr.description}</td>
+                                    <td className="px-3 py-2 text-right text-slate-200">
+                                      {lr.quantity}
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-slate-200">
+                                      {lr.approvedRate != null ? lr.approvedRate : '—'}
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-slate-200">
+                                      {lr.chargedRate}
+                                    </td>
+                                    <td className="px-3 py-2 text-right text-slate-200">
+                                      ₹ {lr.difference.toLocaleString('en-IN')}
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
+                                      <StatusPill status={lr.status} />
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+
+                        <div className="grid sm:grid-cols-4 gap-3 mt-3 text-[11px]">
+                          <div className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+                            <div className="text-slate-400">Total Invoice Amount</div>
+                            <div className="text-slate-100 font-medium">
+                              ₹ {lastResult.totalInvoiceAmount.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+                            <div className="text-slate-400">Correct Amount</div>
+                            <div className="text-emerald-300 font-medium">
+                              ₹ {lastResult.correctAmount.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+                            <div className="text-slate-400">Total Overcharge</div>
+                            <div className="text-rose-300 font-medium">
+                              ₹ {lastResult.totalOvercharge.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+                            <div className="text-slate-400">Leakage %</div>
+                            <div className="text-amber-300 font-medium">
+                              {lastResult.leakagePercent}%
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-full min-h-[320px] rounded-2xl border border-dashed border-slate-800 bg-slate-900/40 flex items-center justify-center text-center px-6">
+                    <div className="max-w-md space-y-2">
+                      <div className="text-sm font-medium text-slate-100">
+                        No invoice analysed yet
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        Start by uploading a PDF or using one of the curated sample invoices to see
+                        how InvoiceSentinel AI surfaces rate mismatches, GST issues and duplicate
+                        bills.
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function Reports({ lastResult }) {
+        if (!lastResult) {
+          return (
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-300 max-w-xl">
+              Run an invoice through the validation engine first.
+              <div className="text-xs text-slate-400 mt-2">
+                Once an invoice has been analysed, this view will summarise flags, leakage and
+                vendor risk in an audit-ready format for finance controllers and internal audit.
+              </div>
+            </div>
+          );
+        }
+
+        const inv = lastResult.invoice;
+
+        return (
+          <div className="space-y-4 max-w-4xl">
+            <div>
+              <h2 className="text-xl lg:text-2xl font-semibold text-slate-50">
+                Audit-Ready Summary
+              </h2>
+              <p className="text-sm text-slate-400 max-w-2xl">
+                A narrative explanation of the detected discrepancies, designed to drop into an
+                email to vendors or attach to an internal approval note.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 space-y-3 text-sm">
+              <div className="flex flex-wrap justify-between gap-3 text-xs text-slate-300">
+                <div>
+                  <div className="text-slate-500">Vendor</div>
+                  <div className="text-slate-100 font-medium">{inv.vendorName}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Invoice</div>
+                  <div className="text-slate-100 font-medium">
+                    {inv.invoiceNumber} • {inv.invoiceDate}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Financial Impact</div>
+                  <div className="text-slate-100 font-medium">
+                    ₹ {lastResult.totalOvercharge.toLocaleString('en-IN')} overcharged (
+                    {lastResult.leakagePercent}% of invoice)
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500">Risk Level</div>
+                  <div
+                    className={
+                      'inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium ' +
+                      riskColor(lastResult.riskLevel)
+                    }
+                  >
+                    {lastResult.riskLevel} Risk
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-px bg-slate-800 my-2" />
+
+              <div className="text-xs text-slate-300 leading-relaxed space-y-2">
+                <p>
+                  InvoiceSentinel AI has analysed invoice{' '}
+                  <span className="font-medium text-slate-100">{inv.invoiceNumber}</span> from{' '}
+                  <span className="font-medium text-slate-100">{inv.vendorName}</span> and compared
+                  it against the approved rate cards, historical invoices and tax policies
+                  configured for this supplier.
+                </p>
+                <p>
+                  The engine detected a total overcharge of{' '}
+                  <span className="font-semibold text-rose-300">
+                    ₹ {lastResult.totalOvercharge.toLocaleString('en-IN')}
+                  </span>{' '}
+                  ({lastResult.leakagePercent}% of the billed value), driven by the following
+                  discrepancy categories:
+                </p>
+                <ul className="list-disc list-inside space-y-1">
+                  {lastResult.discrepancyTypes.map((t) => (
+                    <li key={t}>
+                      <span className="font-medium text-slate-100">
+                        {t.replace('_', ' ')}:
+                      </span>{' '}
+                      automated rules have identified line items that deviate from your configured
+                      policy or tax setup.
+                    </li>
+                  ))}
+                </ul>
+                <p>
+                  A line-level breakdown is available on the &quot;Upload Invoice&quot; screen and
+                  can be exported as a PDF audit report, which is suitable for sharing with the
+                  vendor or attaching to credit note requests.
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      function App() {
+        const [activePage, setActivePage] = useState('dashboard');
+        const [dashboard, setDashboard] = useState(null);
+        const [lastResult, setLastResult] = useState(null);
+
+        useEffect(() => {
+          fetch('/api/dashboard')
+            .then((r) => r.json())
+            .then(setDashboard)
+            .catch((e) => console.error(e));
+        }, []);
+
+        return (
+          <Layout activePage={activePage} setActivePage={setActivePage}>
+            {activePage === 'dashboard' && <Dashboard dashboard={dashboard} />}
+            {activePage === 'upload' && (
+              <UploadInvoice
+                setDashboard={setDashboard}
+                lastResult={lastResult}
+                setLastResult={setLastResult}
+              />
+            )}
+            {activePage === 'reports' && <Reports lastResult={lastResult} />}
+          </Layout>
+        );
+      }
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
+

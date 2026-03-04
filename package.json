@@ -1,0 +1,25 @@
+{
+  "name": "invoicesentinel-ai",
+  "version": "1.0.0",
+  "description": "InvoiceSentinel AI — intelligent invoice discrepancy detection prototype for finance teams.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "invoice",
+    "discrepancy",
+    "finance",
+    "express",
+    "react",
+    "tailwind",
+    "chartjs"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1"
+  }
+}
